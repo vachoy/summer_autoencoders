@@ -1,0 +1,130 @@
+import tensorflow as tf
+import numpy as np
+from matplotlib import pyplot as plt
+from tensorflow.examples.tutorials.mnist import input_data
+
+"""
+Goal: create an autoencoder network. Autoencoders utilize an encoder,
+decoder, and latent space shared between the previous two. Vanilla
+autoencoders (this kind) try to generate images that look as exact to
+the input images as possible. Utilizes a reconstruction loss metric that
+just compares the output image to the corresponding input image during
+training.
+"""
+
+#define parameters
+batch_size = 512
+features = 784
+
+#import data
+mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+
+w = 256 #weight layer nodes
+L = 2 #latent layer nodes
+
+#define sigmoid function
+def sigmoid(x):
+    z = 1/(1 + tf.exp(-x))
+    return z
+    
+images = mnist.train.images
+labels = mnist.train.labels
+
+#create data generation function
+def gen_data(batch_size):
+    
+    random_rows = np.random.choice(images.shape[0],size=batch_size,replace=False)
+    x_data = mnist.train.images[random_rows,:]
+    y_data = mnist.train.labels[random_rows,:]
+    
+    return x_data, y_data
+
+#create network variables
+tf.reset_default_graph()
+
+x = tf.placeholder(tf.float32, shape=(batch_size,features))
+
+enc_w_hat = tf.get_variable("enc_w_hat", shape=(features,w), initializer=tf.random_normal_initializer(0,0.5))
+enc_b_hat = tf.get_variable("enc_b_hat", shape=(1,w), initializer=tf.random_normal_initializer(0,0.5))
+enc_L_hat = tf.get_variable("enc_L_hat", shape=(w,L), initializer=tf.random_normal_initializer(0,0.5))
+enc_bL_hat = tf.get_variable("enc_bL_hat", shape=(1,L), initializer=tf.random_normal_initializer(0,0.5))
+
+dec_w_hat = tf.get_variable("dec_w_hat", shape=(w,features), initializer=tf.random_normal_initializer(0,0.5))
+dec_b_hat = tf.get_variable("dec_b_hat", shape=(1,features), initializer=tf.random_normal_initializer(0,0.5))
+dec_L_hat = tf.get_variable("dec_L_hat", shape=(L,w), initializer=tf.random_normal_initializer(0,0.5))
+dec_bL_hat = tf.get_variable("dec_bL_hat", shape=(1,w), initializer=tf.random_normal_initializer(0,0.5))
+
+#create network:
+#encode step
+e_first_layer = sigmoid(tf.add(enc_b_hat,tf.matmul(x,enc_w_hat)))
+e_second_layer = sigmoid(tf.add(enc_bL_hat,tf.matmul(e_first_layer,enc_L_hat)))
+
+#decode step
+d_first_layer = sigmoid(tf.add(dec_bL_hat,tf.matmul(e_second_layer,dec_L_hat)))
+x_hat = sigmoid(tf.add(dec_b_hat,tf.matmul(d_first_layer,dec_w_hat)))
+
+#loss
+MSE = tf.reduce_mean(tf.square(x_hat-x))
+
+optimizer = tf.train.AdamOptimizer(learning_rate=0.001).minimize(MSE)
+
+init = tf.global_variables_initializer()
+
+#run Session
+with tf.Session() as sess:
+    sess.run(init)
+    losses = []
+    for i in range(50000):
+        x_data, y_data = gen_data(batch_size)
+        _ = sess.run(optimizer, feed_dict={x: x_data})
+        if np.mod(i,5000) == 0:
+            print(sess.run(MSE, feed_dict={x: x_data}))
+        losses.append(sess.run(MSE, feed_dict={x: x_data}))
+    
+    nums = sess.run(e_second_layer,feed_dict={x: x_data})    
+    correct_pred = tf.equal(tf.argmax(x_hat,1),tf.argmax(x,1))
+    accuracy = tf.reduce_mean(tf.cast(correct_pred,tf.float32))
+    x_out = sess.run(x_hat, feed_dict={x: x_data})
+    
+    #test!
+    n = 3
+    input_x = np.empty((28*n,28*n))
+    output_x = np.empty((28*n,28*n))
+    
+    for i in range(n):
+        x_data,y_data = gen_data(batch_size)
+        test = sess.run(x_hat, feed_dict={x: x_data})
+        
+        #originals
+        for j in range(n):
+            input_x[i*28:(i+1)*28,j*28:(j+1)*28] = \
+                x_data[j].reshape([28,28])
+        
+        #reconstructions
+        for j in range(n):
+            output_x[i*28:(i+1)*28,j*28:(j+1)*28] = \
+                test[j].reshape([28, 28])
+
+#visualize reconstructions/loss
+plt.figure(figsize=(3, 3))
+plt.imshow(input_x, origin="upper", cmap="gray")
+plt.title("Original Images")
+plt.show()
+
+plt.figure(figsize=(3, 3))
+plt.imshow(output_x, origin="upper", cmap="gray")
+plt.title("Reconstructed Images")
+plt.show()
+
+plt.plot(losses)
+plt.title("Loss")
+
+plt.show()
+
+#see where the numbers ended up in the distribution
+c = (np.argmax(y_data,1))
+for ii in range(10):
+    idx = c==ii
+    plt.plot(nums[idx,0],nums[idx,1],'o')
+
+plt.show()
