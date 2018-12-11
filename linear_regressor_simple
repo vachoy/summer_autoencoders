@@ -1,0 +1,72 @@
+import tensorflow as tf
+import numpy as np
+from matplotlib import pyplot as plt
+
+"""
+Goal: generate a random slope (w) and bias (b) that we will make
+random data points conform to. Here we're creating those random
+initial values and setting the batch_size which we'll use for our
+data generation function.
+"""
+batch_size = 128
+w = np.random.randn() #set w to a random scalar
+b = np.random.randn() #set b to a random scalar
+
+"""
+Generate random x values that we will later make conform to our w.
+Note that the y values are contingent upon the x values, so we first
+initialize x as an array of size batch_size, populated with random
+values. Each corresponding y value is calculated by multiplying the slope
+by the values of x and adding b. Finally we return both arrays for later
+use.
+"""
+def gen_data(w, b, batch_size):
+    x_data = np.random.rand(batch_size,1)
+    y_data = w*x_data+b
+    return x_data,y_data
+    
+"""
+Print out w and b for later reference and the output of our data generation 
+function to make sure it came out as anticipated.
+"""
+print(w,b)
+print(gen_data(w, b, batch_size))
+
+"""
+Build the linear regression. We also define the formula for calculating
+y_hat and the mean standard error, which we're using as our loss function.
+We use TensorFlow's built in GradientDescentOptimizer to minimize the mean
+squared loss and define the learning rate.
+"""
+x = tf.placeholder(tf.float32, shape=(batch_size,1))
+y = tf.placeholder(tf.float32, shape=(batch_size,1))
+
+w_hat = tf.get_variable("w_hat", shape=(1,1), initializer=tf.random_normal_initializer(0,0.5))
+b_hat = tf.get_variable("b_hat", shape=(1,1), initializer=tf.random_normal_initializer(0,0.5))
+
+y_hat = tf.add(tf.matmul(x,w_hat),b_hat)
+
+MSE = tf.reduce_mean(tf.square(y_hat-y))
+
+optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01).minimize(MSE)
+
+init = tf.global_variables_initializer()
+
+"""
+Perform the linear regression via a for loop for 1000 steps. For each iteration of
+the loop, we run our data generation function, store the output of the optimizer
+into an underscore variable, and print the loss. We feed the data into the
+optimizer using feed_dict and putting our randomly generated values into the
+x and y placeholder values we made earlier. Finally we print w_hat and b_hat (our
+generated values) and w and b so that we can compare them and see how well the
+regression performed.
+"""
+with tf.Session() as sess:
+    sess.run(init)
+    for i in range(1000):
+        x_data, y_data = gen_data(w,b,batch_size)
+        _ = sess.run(optimizer, feed_dict={x: x_data, y: y_data})
+        if np.mod(i,50) == 0:
+            print(sess.run(MSE, feed_dict={x: x_data, y: y_data}))
+    print(sess.run([w_hat, b_hat]))
+    print(w,b)
