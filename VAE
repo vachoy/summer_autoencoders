@@ -1,0 +1,189 @@
+import tensorflow as tf
+import numpy as np
+from matplotlib import pyplot as plt
+from tensorflow.examples.tutorials.mnist import input_data
+
+"""
+Goal: VAEs differ from vanilla autoencoders in that they are a generative
+network. They use their encoder portion of the network to encode information
+about the distribution of the input data into their latent space. The decoder
+then uses this information to create unique data that looks as though it
+originated from the same distribution as the input data. VAEs use reconstruction
+loss as well as KL divergence, a metric that compares the encoded distribution
+within the latent space to the distribution from the input data.
+"""
+
+#define parameters
+batch_size = 128
+features = 784
+
+mnist = input_data.read_data_sets("MNIST_data/", one_hot=True) #import data
+
+w1 = 256 #hidden layer 1 nodes
+w2 = 128 #hidden layer 2 nodes
+L = 20 #latent layer nodes
+
+#define various functions
+def sigmoid(x):
+    z = 1/(1 + tf.exp(-x))
+    return z
+
+def sigmoid_np(x):
+    z = 1/(1 + np.exp(-x))
+    return z
+
+def relu(x):
+    z = np.maximum(x,0)
+    return z
+
+images = mnist.train.images
+labels = mnist.train.labels
+
+#create function to generate data
+def gen_data(batch_size):
+    
+    random_rows = np.random.choice(images.shape[0],size=batch_size,replace=False)
+    x_data = mnist.train.images[random_rows,:]
+    y_data = mnist.train.labels[random_rows,:]
+    
+    return x_data, y_data
+
+print(gen_data(batch_size))
+
+"""
+VAEs use a "reparameterization trick" in which they create a mu and log-sigma
+to represent the distribution within the latent space. They then take a sample
+from this distribution. random_sample is a function that executes this step in
+the process.
+"""
+def random_sample(r):
+    
+    mu, log_sigma = r
+    epsilon = tf.random_normal(shape=(batch_size,L))
+    z = mu + ((tf.exp(0.5*log_sigma))*epsilon)
+    
+    return z
+    
+tf.reset_default_graph()
+
+insigma=0.001
+
+x = tf.placeholder(tf.float32, shape=(batch_size,features))
+
+#encoder hidden layer 1 weight + bias
+enc_w1 = tf.get_variable("enc_w1", shape=(features,w1), initializer=tf.random_normal_initializer(0,insigma))
+enc_b1 = tf.get_variable("enc_b1", shape=(1,w1), initializer=tf.random_normal_initializer(0,insigma))
+
+#encoder hidden layer 2 weight + bias
+enc_w2 = tf.get_variable("enc_w2", shape=(w1,w2), initializer=tf.random_normal_initializer(0,insigma))
+enc_b2 = tf.get_variable("enc_b2", shape=(1,w2), initializer=tf.random_normal_initializer(0,insigma))
+
+#mu and sigma weights + biases
+mu_hat = tf.get_variable("mu_hat", shape=(w2,L), initializer=tf.random_normal_initializer(0,insigma))
+mu_b_hat = tf.get_variable("mu_b_hat", shape=(1,L), initializer=tf.random_normal_initializer(0,insigma))
+log_sigma_hat = tf.get_variable("log_sigma_hat", shape=(w2,L), initializer=tf.random_normal_initializer(0,insigma))
+log_sigma_b_hat = tf.get_variable("log_sigma_b_hat", shape=(1,L), initializer=tf.random_normal_initializer(0,insigma))
+
+#decoder hidden layer 1 weight + bias
+dec_w1 = tf.get_variable("dec_w1", shape=(L,w2), initializer=tf.random_normal_initializer(0,insigma))
+dec_b1 = tf.get_variable("dec_b1", shape=(1,w2), initializer=tf.random_normal_initializer(0,insigma))
+
+#decoder hidden layer 2 weight + bias
+dec_w2 = tf.get_variable("dec_w2", shape=(w2,w1), initializer=tf.random_normal_initializer(0,insigma))
+dec_b2 = tf.get_variable("dec_b2", shape=(1,w1), initializer=tf.random_normal_initializer(0,insigma))
+
+#output layer weight + bias
+x_w_hat = tf.get_variable("x_w_hat", shape=(w1,features), initializer=tf.random_normal_initializer(0,insigma))
+x_b_hat = tf.get_variable("x_b_hat", shape=(1,features), initializer=tf.random_normal_initializer(0,insigma))
+
+#encode step
+e_hidden1 = tf.nn.relu(tf.add(enc_b1,tf.matmul(x,enc_w1)))
+e_hidden2 = tf.nn.relu(tf.add(enc_b2,tf.matmul(e_hidden1,enc_w2)))
+mu = tf.add(mu_b_hat,tf.matmul(e_hidden2,mu_hat))
+log_sigma = tf.add(log_sigma_b_hat,tf.matmul(e_hidden2,log_sigma_hat))
+
+#random sample
+z = random_sample([mu,log_sigma])
+
+#decode step
+d_hidden1 = tf.nn.relu(tf.add(dec_b1,tf.matmul(z,dec_w1)))
+d_hidden2 = tf.nn.relu(tf.add(dec_b2,tf.matmul(d_hidden1,dec_w2)))
+x_hat = sigmoid(tf.add(x_b_hat,tf.matmul(d_hidden2,x_w_hat)))
+
+#calculate loss
+beta = 0.001
+l2 = (beta*tf.nn.l2_loss(enc_w1) +
+      beta*tf.nn.l2_loss(enc_w2) +
+      beta*tf.nn.l2_loss(mu_hat) +
+      beta*tf.nn.l2_loss(log_sigma_hat) +
+      beta*tf.nn.l2_loss(dec_w1) +
+      beta*tf.nn.l2_loss(dec_w2) +
+      beta*tf.nn.l2_loss(x_w_hat))
+recon_loss = tf.reduce_mean(tf.square(x-x_hat),1)
+kl = 0.5*tf.reduce_sum(tf.exp(log_sigma)+tf.square(mu)-(1+log_sigma),1)
+loss = tf.reduce_mean(tf.add(1000.*recon_loss,kl) + 0.09*l2)
+
+#gradient clipping
+optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
+gradients = optimizer.compute_gradients(loss)
+capped_gradients = [(tf.clip_by_norm(grad,5.0),var) for grad,var in gradients]
+opt = optimizer.apply_gradients(capped_gradients)
+
+init = tf.global_variables_initializer()
+
+#run Session
+with tf.Session() as sess:
+    sess.run(init)
+    losses = []
+    nums = []
+    for i in range(50000):
+        x_data, y_data = gen_data(batch_size)
+        _ = sess.run(opt, feed_dict={x: x_data})
+        if np.mod(i,5000) == 0:
+            print(sess.run(loss, feed_dict={x: x_data}))
+        losses.append(sess.run(loss, feed_dict={x: x_data}))
+        if np.mod(i,500) == 0:
+            print("Step: {} | Reconstruction loss: {} | KL divergence: {} ".format(
+                i,(sess.run(tf.reduce_sum(recon_loss),feed_dict={x: x_data})),
+                (sess.run(tf.reduce_sum(kl),feed_dict={x: x_data}))))
+    nums.append(sess.run(mu,feed_dict={x: x_data}))    
+    correct_pred = tf.equal(tf.argmax(x_hat,1),tf.argmax(x,1))
+    accuracy = tf.reduce_mean(tf.cast(correct_pred,tf.float32))
+    x_out = sess.run(x_hat, feed_dict={x: x_data})
+    
+    #test
+    n = 3
+    input_x = np.empty((28*n,28*n))
+    output_x = np.empty((28*n,28*n))
+    
+    for i in range(n):
+        x_data,y_data = gen_data(batch_size)
+        test = sess.run(x_hat, feed_dict={x: x_data})
+        
+        #originals
+        for j in range(n):
+            print("x_data: {}".format(x_data))
+            input_x[i*28:(i+1)*28,j*28:(j+1)*28] = \
+                x_data[j].reshape([28,28])
+        
+        #reconstructions
+        for j in range(n):
+            print("test: {}".format(test))
+            output_x[i*28:(i+1)*28,j*28:(j+1)*28] = \
+                test[j].reshape([28, 28])
+                
+#visualize reconstructions
+plt.figure(figsize=(3, 3))
+plt.imshow(input_x, origin="upper", cmap="gray")
+plt.title("Original Images")
+plt.show()
+
+plt.figure(figsize=(3, 3))
+plt.imshow(output_x, origin="upper", cmap="gray")
+plt.title("Reconstructed Images")
+plt.show()
+
+plt.plot(losses)
+plt.title("Loss")
+
+plt.show()
