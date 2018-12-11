@@ -8,4 +8,4 @@ A collection of the various networks I created during my internship at Yale in s
 - variational autoencoder
 - conditional variational autoencoder
 
-Please see code comments for information more specific to each network.
+All code is in Python 3. See code comments for information more specific to each network.
